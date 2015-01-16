@@ -7,9 +7,20 @@ var spawn = require("child_process").spawn,
 	through = require("through"),
 	concat = require("concat-stream");
 
-module.exports.read = function(src, callback) {
-	var stream = through(),
-		proc = spawnRead(src),
+module.exports.read = function(src, options, callback) {
+	if (typeof options === "function") {
+		callback = options;
+		options = {};
+	}
+
+	var args = getReadArgs(src);
+
+	if (options.dryRun) {
+		return args;
+	}
+
+	var proc = spawnRead(args),
+		stream = through(),
 		output = parseini(),
 		error = concat();
 
@@ -39,15 +50,21 @@ module.exports.read = function(src, callback) {
 	return stream;
 };
 
-module.exports.write = function(src, data, files, callback) {
-	if (typeof files === "function") {
-		callback = files;
-		files = [];
+module.exports.write = function(src, data, options, callback) {
+	if (typeof options === "function") {
+		callback = options;
+		options = {};
 	}
 
-	var stream = through(),
-		dst = getTempPath(src),
-		proc = spawnWrite(src, dst, data, files),
+	var dst = getTempPath(src),
+		args = getWriteArgs(src, dst, data, options);
+
+	if (options.dryRun) {
+		return args;
+	}
+
+	var proc = ffmpeg(args),
+		stream = through(),
 		error = concat();
 
 	// Proxy any child process error events
@@ -106,34 +123,39 @@ function getTempPath(src) {
 
 // -- Child process helpers
 
-function spawnRead(src) {
-	var args = [
+function getReadArgs(src) {
+	return [
 		"-i",
 		src,
 		"-f",
 		"ffmetadata",
 		"pipe:1", // output to stdout
 	];
+}
 
+function spawnRead(args) {
 	return ffmpeg(args, { detached: true, encoding: "binary" });
 }
 
-function spawnWrite(src, dst, data, files) {
+function getWriteArgs(src, dst, data, options) {
 	// ffmpeg options
 	var inputs = ["-i", src], // src input
 		maps = ['-map', '0:0'], // set as the first
 		args = ["-y"]; // overwrite file
 
-	// Append files and map options if included. This is in order, which
-	// describes the streams in order.
-	files.forEach(function(el, i) {
-		i += 1;
+	// Attach additional input files if included
+	getAttachments(options).forEach(function(el) {
+		var inputIndex = inputs.length / 2;
 		inputs.push('-i', el);
-		maps.push("-map", i + ":0");
+		maps.push("-map", inputIndex + ":0");
 	});
 
 	// Copy flag in order to not transcode
 	args = args.concat(inputs, maps, ["-codec", "copy"]);
+
+	if (options["id3v2.3"]) {
+		args.push("-id3v2_version", "3");
+	}
 
 	// append metadata
 	Object.keys(data).forEach(function(name) {
@@ -143,7 +165,14 @@ function spawnWrite(src, dst, data, files) {
 
 	args.push(dst); // output to src path
 
-	return ffmpeg(args);
+	return args;
+}
+
+function getAttachments(options) {
+	if (Array.isArray(options)) {
+		return options;
+	}
+	return options.attachments || [];
 }
 
 // -- Parse ini

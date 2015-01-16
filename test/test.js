@@ -45,6 +45,16 @@ test("copy test files", function(t) {
 	end.on("end", t.end.bind(t));
 });
 
+test("read metadata dry run", function(t) {
+	var options = {
+		dryRun: true,
+	};
+	var args = ffmetadata.read(TEST_FILE, options);
+	t.ok(args);
+	t.ok(args.length > 0);
+	t.end();
+});
+
 test("read metadata", function(t) {
 	ffmetadata.read(TEST_FILE, function(err, data) {
 		t.ifError(err);
@@ -70,10 +80,15 @@ test("write metadata", function(t) {
 		});
 	});
 });
+
 test("write metadata with artwork", function(t) {
-	ffmetadata.write(TEST_FILE_ARTWORK, {
+	var data = {
 		artist: "bar",
-	}, [TEST_ARTWORK], function(err) {
+	};
+	var options = {
+		attachments: [TEST_ARTWORK],
+	};
+	ffmetadata.write(TEST_FILE_ARTWORK, data, options, function(err) {
 		t.ifError(err);
 		ffmetadata.read(TEST_FILE_ARTWORK, function(err, data) {
 			t.ifError(err);
@@ -83,4 +98,21 @@ test("write metadata with artwork", function(t) {
 	});
 });
 
-// TODO Ensure integrity of additional streams from `_append`
+// TODO Ensure integrity of additional streams from `options.attachments`
+
+test("write metadata", function(t) {
+	var data = {
+		artist: "foo",
+		track: "1/10",
+		disc: "2/2",
+	};
+	var options = {
+		"id3v2.3": true,
+		dryRun: true,
+	};
+	var args = ffmetadata.write(TEST_FILE, data, options);
+	var index = args.indexOf("-id3v2_version");
+	t.notEqual(index, -1);
+	t.equal(args[index + 1], "3");
+	t.end();
+});
